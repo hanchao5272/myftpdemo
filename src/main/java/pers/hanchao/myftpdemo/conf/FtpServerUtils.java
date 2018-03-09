@@ -1,12 +1,10 @@
 package pers.hanchao.myftpdemo.conf;
 import org.apache.commons.net.ftp.FTPClient;
+import org.apache.commons.net.ftp.FTPFile;
 import org.apache.commons.net.ftp.FTPReply;
 import org.apache.log4j.Logger;
 
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.IOException;
-import java.io.InputStream;
+import java.io.*;
 import java.net.SocketException;
 import java.util.UUID;
 
@@ -28,6 +26,96 @@ public class FtpServerUtils {
     }
 
     /**
+     * <p>Title: 下载单个文件至指定目录（默认客户端文件命名与服务器一致）</p>
+     * @param serverFilePath ftp服务器上的路径
+     * @param serverFileName ftp服务器上的文件名
+     * @param localFilePath 本地需要保存的的路径
+     * @author 韩超 2018/3/9 15:55
+     */
+    public static boolean downloadSingleFile(String serverFilePath,String serverFileName,String localFilePath){
+        return downloadSingleFile(serverFilePath,serverFileName,localFilePath,serverFileName);
+    }
+
+    /**
+     * <p>Title: 下载单个文件至指定目录（需指定本地文件名）</p>
+     * @param serverFilePath ftp服务器上的路径
+     * @param serverFileName ftp服务器上的文件名
+     * @param localFilePath 本地需要保存的的路径
+     * @param localFileName 本地需要保存的的文件名
+     * @author 韩超 2018/3/9 15:55
+     */
+    public static boolean downloadSingleFile(String serverFilePath,String serverFileName,String localFilePath,String localFileName){
+        //记录开始时间
+        ThreadLocal<Long> startTime = new ThreadLocal<Long>();
+        startTime.set(System.currentTimeMillis());
+        //使用UUID作为一次上传的标识
+        String ftpClientUUID = UUID.randomUUID().toString();
+        String serverLocalFileName = serverFilePath +  File.separator + serverFileName;
+        String localFullFileName = localFilePath + File.separator + localFileName;
+        LOGGER.info("FTPClient[" + ftpClientUUID+ "]开始下载单个文件,服务端文件：" + serverLocalFileName + "---->客户端文件：" + localFullFileName);
+        //连接服务器并登录
+        FTPClient ftpClient = getFTPClient();
+        //切换目录
+        try {
+            ftpClient.changeWorkingDirectory(serverFilePath);
+        } catch (IOException e) {
+            LOGGER.info("FTPClient切换目录失败：" + serverFilePath);
+            shutdwon(ftpClient);
+            e.printStackTrace();
+            return false;
+        }
+        //获取当前目录下的所有FTP文件
+        FTPFile[] ftpFiles = null;
+        try {
+            ftpFiles = ftpClient.listFiles();
+        } catch (IOException e) {
+            LOGGER.info("FTPClient获取目录下文件失败：" + serverFilePath);
+            shutdwon(ftpClient);
+            e.printStackTrace();
+            return false;
+        }
+        //如果ftpFiles为空，则表示未找到文件
+        if(null == ftpFiles){
+            LOGGER.info("FTPClient未找到相关文件！");
+            return false;
+        }
+        Boolean find = false;//是否文文件
+        for (FTPFile ftpFile : ftpFiles){
+            //如果找到文件，则下载
+            if(serverFileName.equalsIgnoreCase(ftpFile.getName())){
+                find = true;
+                File localFile = new File(localFullFileName);
+                try {
+                    find = ftpClient.retrieveFile(serverFileName,new FileOutputStream(localFile));
+                    LOGGER.debug("FTPClient....下载完成");
+                } catch (IOException e) {
+                    LOGGER.info("FTPClient下载件失败");
+                    shutdwon(ftpClient);
+                    e.printStackTrace();
+                }
+            }
+        }
+        if(!find){
+            LOGGER.info("FTPClient未找到相关文件！");
+            return false;
+        }
+        //登出
+        try {
+            ftpClient.logout();
+        } catch (IOException e) {
+            e.printStackTrace();
+            LOGGER.info("FTPClient[" + ftpClientUUID+ "]服务器登出失败");
+            shutdwon(ftpClient);
+            return false;
+        }
+        //关闭连接
+        shutdwon(ftpClient);
+        Long useTime = System.currentTimeMillis() - startTime.get();
+        LOGGER.info("FTPClient[" + ftpClientUUID+ "]单个文件下载完成...用时：" + useTime + "ms");
+        return true;
+    }
+
+    /**
      * <p>Title: 上传单个文件</p>
      * @param sourceFile 待上传文件
      * @param serverFilePath 服务器文件保存路径
@@ -45,13 +133,12 @@ public class FtpServerUtils {
      * @author 韩超 2018/3/9 14:42
      */
     public static boolean uploadSingleFile(File sourceFile,String serverFilePath,String serverFileName){
-
         //记录开始时间
         ThreadLocal<Long> startTime = new ThreadLocal<Long>();
         startTime.set(System.currentTimeMillis());
         //使用UUID作为一次上传的标识
         String ftpClientUUID = UUID.randomUUID().toString();
-        LOGGER.info("FTPClient[" + ftpClientUUID+ "]开始上传单个文件,客户端文件：" + sourceFile.getName() + ",服务端文件：" + serverFileName);
+        LOGGER.info("FTPClient[" + ftpClientUUID+ "]开始上传单个文件,客户端文件：" + sourceFile.getName() + "---->服务端文件：" + serverFileName);
         //连接服务器并登录
         FTPClient ftpClient = getFTPClient();
         //确保文件路径存在
@@ -94,7 +181,7 @@ public class FtpServerUtils {
         //关闭连接
         shutdwon(ftpClient);
         Long useTime = System.currentTimeMillis() - startTime.get();
-        LOGGER.info("FTPClient[" + ftpClientUUID+ "]上传完成...用时：" + useTime + "ms");
+        LOGGER.info("FTPClient[" + ftpClientUUID+ "]单个文件上传完成...用时：" + useTime + "ms");
         return true;
     }
 
@@ -124,6 +211,8 @@ public class FtpServerUtils {
             }
             //设置文件类型
             ftpClient.setFileType(FTPClient.BINARY_FILE_TYPE);
+            //设置本地被动模式
+            ftpClient.enterLocalPassiveMode();
             return ftpClient;
         } catch (Exception e) {
             LOGGER.info("FTPClient获取连接失败！");
@@ -178,6 +267,29 @@ public class FtpServerUtils {
             FtpServerUtils.uploadSingleFile(new File(fileName),serverFilePath1,serverFileName1);
         }
     }
+
+    /**
+     * <p>Title: 自定义线程进行多线程下载测试</p>
+     * @author 韩超 2018/3/9 16:19
+     */
+    static class MyThreadForSingleDownload extends Thread{
+        String serverFilePath;
+        String serverFileName;
+        String localFilePath;
+        String localFileName;
+
+        public MyThreadForSingleDownload(String serverFilePath, String serverFileName, String localFilePath, String localFileName) {
+            this.serverFilePath = serverFilePath;
+            this.serverFileName = serverFileName;
+            this.localFilePath = localFilePath;
+            this.localFileName = localFileName;
+        }
+
+        @Override
+        public void run(){
+            FtpServerUtils.downloadSingleFile(serverFilePath,serverFileName,localFilePath,localFileName);
+        }
+    }
     /**
      * <p>Title: 测试</p>
      * @author 韩超 2018/3/9 13:59
@@ -200,5 +312,22 @@ public class FtpServerUtils {
 //            String serverFileName1 = i + "" + i + ".jpg";
 //            new MyThreadForSingleFileUpload(fileName,serverFilePath1,serverFileName1).start();
 //        }
+
+        //单个文件下载测试
+//        String serverFilePath = "\\pic\\png";
+//        String serverFileName = "55.jpg";
+//        String localFilePath = "F:\\myftpservertest\\";
+//        String localFileName = "5555.jpg";
+//        FtpServerUtils.downloadSingleFile(serverFilePath,serverFileName,localFilePath,localFileName);
+//        FtpServerUtils.downloadSingleFile(serverFilePath,serverFileName,localFilePath);
+
+//        for(int i = 0; i < 5; i++) {
+//            String serverFilePath = "\\pic\\png";
+//            String serverFileName = i + "" + i + ".jpg";
+//            String localFilePath = "F:\\myftpservertest\\";
+//            String localFileName = i + "" + i + i + "" + i + ".jpg";
+//            new MyThreadForSingleDownload(serverFilePath,serverFileName,localFilePath,localFileName).start();
+//        }
+
     }
 }
