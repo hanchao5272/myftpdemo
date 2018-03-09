@@ -187,6 +187,91 @@ public class FtpServerUtils {
 
 
     /**
+     * <p>Title: 上传一个目录及子目录下所有的文件</p>
+     * @param localDirectory 本地需要上传的目录
+     * @param serverFilePath 服务端保存的目录位置
+     * @author 韩超 2018/3/9 16:38
+     */
+    public static boolean uploadDirectory(File localDirectory, String serverFilePath){
+        //记录开始时间
+        ThreadLocal<Long> startTime = new ThreadLocal<Long>();
+        startTime.set(System.currentTimeMillis());
+        //使用UUID作为一次上传的标识
+        String ftpClientUUID = UUID.randomUUID().toString();
+        LOGGER.info("FTPClient[" + ftpClientUUID+ "]开始上传目录及子目录所有文件,客户端文件：" + localDirectory.getAbsolutePath() + "---->服务端文件：" + serverFilePath);
+        //连接服务器并登录
+        FTPClient ftpClient = getFTPClient();
+        //上传目文件
+        try {
+            storeAllFiles(localDirectory.getParentFile().getAbsolutePath(),localDirectory,ftpClient,serverFilePath);
+            LOGGER.debug("FTPClient....批量上传完成");
+        } catch (IOException e) {
+            e.printStackTrace();
+            LOGGER.info("FTPClient批量上传文件失败");
+            shutdwon(ftpClient);
+            return false;
+        }
+        //登出
+        try {
+            ftpClient.logout();
+        } catch (IOException e) {
+            e.printStackTrace();
+            LOGGER.info("FTPClient[" + ftpClientUUID+ "]服务器登出失败");
+            shutdwon(ftpClient);
+            return false;
+        }
+        //关闭连接
+        shutdwon(ftpClient);
+        Long useTime = System.currentTimeMillis() - startTime.get();
+        LOGGER.info("FTPClient[" + ftpClientUUID+ "]批量文件上传完成...用时：" + useTime + "ms");
+        return true;
+    }
+
+    /**
+     * <p>Title: 递归访问指定目录及子目录下的文件</p>
+     * @param ftpClient FTPClient实例
+     * @param file 本地需要上传的目录
+     * @param serverFilePath ftp服务器保存的目录
+     * @author 韩超 2018/3/9 16:53
+     */
+    public static void storeAllFiles(String superDirectoryPath,File file,FTPClient ftpClient,String serverFilePath) throws IOException {
+        //如果当前文件是文件夹，则继续进行递归
+        if (file.isDirectory()){
+            LOGGER.info("directory: " + file.getAbsolutePath());
+            //获取当前文件的父目录
+            File supFile = file.getParentFile();
+            //获取当前文件的后缀
+            String localFileSuffix = supFile.getAbsolutePath().substring(superDirectoryPath.length());
+            //获取当前文件的服务路径
+            String serverFullFilePath = serverFilePath + File.separator + localFileSuffix;
+            //创建服务端目录
+            boolean reuslt1 = ftpClient.makeDirectory(serverFullFilePath);
+            LOGGER.info("创建目录：" + serverFullFilePath + "==" + reuslt1);
+            //列出所有文件
+            File[] files = file.listFiles();
+            for (File subFile : files){
+                storeAllFiles(superDirectoryPath,subFile,ftpClient,serverFilePath);
+            }
+        }else{//如果当前文件是文件，则打印输出
+            //获取当前文件的父目录
+            File supFile = file.getParentFile();
+            //获取当前文件的后缀
+            String localFileSuffix = supFile.getAbsolutePath().substring(superDirectoryPath.length());
+            //获取当前文件的服务路径
+            String serverFullFilePath = serverFilePath + File.separator + localFileSuffix;
+            //创建服务端目录
+            boolean reuslt1 = ftpClient.makeDirectory(serverFullFilePath);
+            LOGGER.info("创建目录：" + serverFullFilePath + "==" + reuslt1);
+            //切换服务端目录
+            boolean reuslt2 =  ftpClient.changeWorkingDirectory(serverFullFilePath);
+            LOGGER.info("切换目录：" + serverFullFilePath + "==" + reuslt2);
+            //上传文件
+            LOGGER.info(file.getAbsolutePath() + "--->" + serverFullFilePath + File.separator + file.getName());
+            ftpClient.storeFile(file.getName(),new FileInputStream(file));
+        }
+    }
+
+    /**
      * <p>Title: 连接FTP服务器，并登陆。然后返回这个连接。如果获取连接失败，则返回null</p>
      * @author 韩超 2018/3/9 11:31
      */
@@ -290,11 +375,13 @@ public class FtpServerUtils {
             FtpServerUtils.downloadSingleFile(serverFilePath,serverFileName,localFilePath,localFileName);
         }
     }
+
+
     /**
      * <p>Title: 测试</p>
      * @author 韩超 2018/3/9 13:59
      */
-    public static void main(String[] args){
+    public static void main(String[] args) throws IOException {
         //测试单个文件上传
 //        String filePath = "F:\\myftpservertest\\1.jpg";
 //        String filePathPrefix = "F:\\myftpservertest\\";
@@ -329,5 +416,9 @@ public class FtpServerUtils {
 //            new MyThreadForSingleDownload(serverFilePath,serverFileName,localFilePath,localFileName).start();
 //        }
 
+//        storeAllFiles("D:\\",new File("D:\\JsonViewerPackage"),null,"\\pic\\png");
+        uploadDirectory(new File("H:\\eclipse"),"\\pic\\png");
+        //408MB -- 86992ms -- 87s -- 4.69MB/s
+        //多检查上传多个目录文件
     }
 }
